@@ -23,9 +23,9 @@ function p_btle_adv.dissector(buffer, pinfo, tree)
     local address = tostring(buffer(0, 6):ether())
 
     -- 如果广播地址不匹配，则跳过
-    if address ~= target_address then
-        return
-    end
+    -- if address ~= target_address then
+    --     return
+    -- end
 
     -- 设置协议名
     pinfo.cols.protocol = "BTLE_ADV"
@@ -70,7 +70,8 @@ local wtap_encap_table = DissectorTable.get("wtap_encap")
 
 -- WTAP_ENCAP_BLUETOOTH_LE_LL 一般是 251 (可以据 Wireshark 版本而异)
 -- 也可以直接用枚举名称 wtap["WTAP_ENCAP_BLUETOOTH_LE_LL"] 来尝试
-local BLUETOOTH_LE_LL = 154
+-- 154=LE_LL,186=nordic_ble
+local BLUETOOTH_LE_LL = 186
 
 -- 将我们的 mybleproto 加入到 BLE LL 的解析中
 wtap_encap_table:add(BLUETOOTH_LE_LL, p_btle_adv)
