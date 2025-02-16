@@ -56,12 +56,12 @@ function p_btle_adv.dissector(buffer, pinfo, tree)
         local payload = buffer(29, buffer:len() - 29)
         local payload_tree = subtree:add(f_payload, payload, "Payload Data")
 
-        -- 解析 Location Info (第43-50字节)
+        -- 解析 Location Info (第39-46字节)
         if buffer:len() >= 50 then
-            local x_location = buffer(42, 4):uint() -- 解析 X 位置信息
-            local y_location = buffer(46, 4):uint() -- 解析 Y 位置信息
-            payload_tree:add(f_location_x, buffer(42, 4), x_location)
-            payload_tree:add(f_location_y, buffer(46, 4), y_location)
+            local x_location = buffer(38, 4):uint() -- 解析 X 位置信息
+            local y_location = buffer(42, 4):uint() -- 解析 Y 位置信息
+            payload_tree:add(f_location_x, buffer(38, 4), x_location)
+            payload_tree:add(f_location_y, buffer(42, 4), y_location)
 
             -- 更新 Info 栏，显示位置信息
             pinfo.cols.info = string.format("X: %d, Y: %d", x_location, y_location)
