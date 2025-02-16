@@ -2,78 +2,64 @@
 local p_btle_adv = Proto("BTLE_ADV", "My Bluetooth LE Advertising")
 
 -- 定义字段
-local f_address = ProtoField.ether("btle_adv.address", "Advertising Address")
-local f_unknown_type = ProtoField.uint8("btle_adv.unknown_type", "Unknown Type", base.HEX)
-local f_unknown_data = ProtoField.bytes("btle_adv.unknown_data", "Unknown Data")
+local f_access_address = ProtoField.uint32("btle_adv.access_address", "Access Address", base.HEX)
+local f_packet_header = ProtoField.uint16("btle_adv.packet_header", "Packet Header", base.HEX)
+local f_advertising_address = ProtoField.ether("btle_adv.advertising_address", "Advertising Address")
+local f_location_x = ProtoField.uint32("btle_adv.location_x", "X Location", base.DEC)
+local f_location_y = ProtoField.uint32("btle_adv.location_y", "Y Location", base.DEC)
+local f_payload = ProtoField.bytes("btle_adv.payload", "Payload")
 
 -- 为 dissector 添加字段
-p_btle_adv.fields = { f_address, f_unknown_type, f_unknown_data }
-
--- 广播地址常量
-local target_address = "00:02:72:32:80:c6"
+p_btle_adv.fields = { f_access_address, f_packet_header, f_advertising_address, f_location_x, f_location_y, f_payload }
 
 -- dissector 函数
 function p_btle_adv.dissector(buffer, pinfo, tree)
     -- 检查数据包长度是否足够
-    if buffer:len() < 6 then
+    if buffer:len() < 50 then
         return
     end
-
-    -- 获取广播地址（前 6 个字节）
-    local address = tostring(buffer(0, 6):ether())
-
-    -- 如果广播地址不匹配，则跳过
-    -- if address ~= target_address then
-    --     return
-    -- end
 
     -- 设置协议名
     pinfo.cols.protocol = "BTLE_ADV"
 
-    -- 更新 Info 列
-    pinfo.cols.info = "BTLE ADV from " .. address
-
     -- 添加到主解析树
     local subtree = tree:add(p_btle_adv, buffer(), "Bluetooth LE Advertising Packet")
-    subtree:add(f_address, buffer(0, 6))
 
-    -- 找到 Unknown 数据（假设其类型为 0x4 且长度为 9）
-    local offset = 6
-    while offset < buffer:len() do
-        local field_type = buffer(offset, 1):uint()
-        local field_length = buffer(offset + 1, 1):uint()
+    -- 解析 Access Address (第18-21字节，倒序解析)
+    local access_address = buffer(17, 4):le_uint() -- 小端序解码
+    subtree:add(f_access_address, buffer(17, 4), string.format("0x%08x", access_address))
 
-        if field_type == 0x04 and field_length == 9 then
-            local unknown_data = buffer(offset + 2, field_length)
+    -- 解析 Packet Header (第22-23字节，倒序解析)
+    local packet_header = buffer(21, 2):le_uint() -- 小端序解码
+    subtree:add(f_packet_header, buffer(21, 2), string.format("0x%04x", packet_header))
 
-            -- 将数据显示在 Info 列中
-            pinfo.cols.info:append(" | Unknown Data: " .. tostring(unknown_data))
+    -- 解析 Advertising Address (第24-29字节，倒序解析)
+    local advertising_address = buffer(23, 6):ether() -- 以太网格式解析
+    subtree:add(f_advertising_address, buffer(23, 6), advertising_address)
 
-            -- 添加到树中
-            local unknown_tree = subtree:add(buffer(offset, field_length + 2), "Unknown Field")
-            unknown_tree:add(f_unknown_type, buffer(offset, 1))
-            unknown_tree:add(f_unknown_data, unknown_data)
-        end
+    -- 解析剩余部分为 Payload
+    local payload = buffer(29, buffer:len() - 29)
+    local payload_tree = subtree:add(f_payload, payload, "Payload Data")
 
-        -- 跳到下一个字段
-        offset = offset + field_length + 2
-    end
+    -- 解析 Location Info (第43-50字节)
+    local x_location = buffer(42, 4):uint() -- 解析 X 位置信息
+    local y_location = buffer(46, 4):uint() -- 解析 Y 位置信息
+    payload_tree:add(f_location_x, buffer(42, 4), x_location)
+    payload_tree:add(f_location_y, buffer(46, 4), y_location)
+
+    -- 更新 Info 栏，显示位置信息
+    pinfo.cols.info = string.format("X: %d, Y: %d", x_location, y_location)
 end
 
 --------------------------------------------------------------------
 -- 下面开始注册 dissector
 --------------------------------------------------------------------
 
--- 获取蓝牙LE链路层（WTAP_ENCAP_BLUETOOTH_LE_LL）的DissectorTable
--- 有时不同的 Wireshark 版本封装可能略有不同，如果注册地点不对，可以尝试其它表。
+-- 获取蓝牙LE链路层（WTAP_ENCAP_BLUETOOTH_LE_LL）的 DissectorTable
 local wtap_encap_table = DissectorTable.get("wtap_encap")
 
--- WTAP_ENCAP_BLUETOOTH_LE_LL 一般是 251 (可以据 Wireshark 版本而异)
--- 也可以直接用枚举名称 wtap["WTAP_ENCAP_BLUETOOTH_LE_LL"] 来尝试
--- 154=LE_LL,186=nordic_ble
+-- 注册到 Nordic BLE 封装类型 (186)
 local BLUETOOTH_LE_LL = 186
-
--- 将我们的 mybleproto 加入到 BLE LL 的解析中
 wtap_encap_table:add(BLUETOOTH_LE_LL, p_btle_adv)
 
 -- 脚本结束
