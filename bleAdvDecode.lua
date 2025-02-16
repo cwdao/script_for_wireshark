@@ -4,7 +4,7 @@ local p_btle_adv = Proto("BTLE_ADV", "My Bluetooth LE Advertising")
 -- 定义字段
 local f_access_address = ProtoField.uint32("btle_adv.access_address", "Access Address", base.HEX)
 local f_packet_header = ProtoField.uint16("btle_adv.packet_header", "Packet Header", base.HEX)
-local f_advertising_address = ProtoField.ether("btle_adv.advertising_address", "Advertising Address")
+local f_advertising_address = ProtoField.string("btle_adv.advertising_address", "Advertising Address")
 local f_location_x = ProtoField.uint32("btle_adv.location_x", "X Location", base.DEC)
 local f_location_y = ProtoField.uint32("btle_adv.location_y", "Y Location", base.DEC)
 local f_payload = ProtoField.bytes("btle_adv.payload", "Payload")
@@ -33,22 +33,42 @@ function p_btle_adv.dissector(buffer, pinfo, tree)
     local packet_header = buffer(21, 2):le_uint() -- 小端序解码
     subtree:add(f_packet_header, buffer(21, 2), string.format("0x%04x", packet_header))
 
-    -- 解析 Advertising Address (第24-29字节，倒序解析)
-    local advertising_address = buffer(23, 6):ether() -- 以太网格式解析
-    subtree:add(f_advertising_address, buffer(23, 6), advertising_address)
+    -- 解析 Advertising Address (第24-29字节，正确顺序显示)
+    if buffer:len() >= 29 then
+        -- 从 buffer 提取字节并以正确的顺序格式化
+        local advertising_address = string.format(
+            "%02x:%02x:%02x:%02x:%02x:%02x",
+            buffer(28, 1):uint(), -- 第6字节
+            buffer(27, 1):uint(), -- 第5字节
+            buffer(26, 1):uint(), -- 第4字节
+            buffer(25, 1):uint(), -- 第3字节
+            buffer(24, 1):uint(), -- 第2字节
+            buffer(23, 1):uint()  -- 第1字节
+        )
+        -- 添加到解析树中，值为手动格式化的地址
+        subtree:add(f_advertising_address, advertising_address):append_text(" (formatted)")
+    else
+        subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Advertising Address")
+    end
 
     -- 解析剩余部分为 Payload
-    local payload = buffer(29, buffer:len() - 29)
-    local payload_tree = subtree:add(f_payload, payload, "Payload Data")
+    if buffer:len() > 29 then
+        local payload = buffer(29, buffer:len() - 29)
+        local payload_tree = subtree:add(f_payload, payload, "Payload Data")
 
-    -- 解析 Location Info (第43-50字节)
-    local x_location = buffer(42, 4):uint() -- 解析 X 位置信息
-    local y_location = buffer(46, 4):uint() -- 解析 Y 位置信息
-    payload_tree:add(f_location_x, buffer(42, 4), x_location)
-    payload_tree:add(f_location_y, buffer(46, 4), y_location)
+        -- 解析 Location Info (第43-50字节)
+        if buffer:len() >= 50 then
+            local x_location = buffer(42, 4):uint() -- 解析 X 位置信息
+            local y_location = buffer(46, 4):uint() -- 解析 Y 位置信息
+            payload_tree:add(f_location_x, buffer(42, 4), x_location)
+            payload_tree:add(f_location_y, buffer(46, 4), y_location)
 
-    -- 更新 Info 栏，显示位置信息
-    pinfo.cols.info = string.format("X: %d, Y: %d", x_location, y_location)
+            -- 更新 Info 栏，显示位置信息
+            pinfo.cols.info = string.format("X: %d, Y: %d", x_location, y_location)
+        else
+            payload_tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Location Info")
+        end
+    end
 end
 
 --------------------------------------------------------------------
