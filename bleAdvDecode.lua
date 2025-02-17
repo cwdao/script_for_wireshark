@@ -8,14 +8,27 @@ local f_advertising_address = ProtoField.string("btle_adv.advertising_address", 
 local f_location_x = ProtoField.uint32("btle_adv.location_x", "X Location", base.DEC)
 local f_location_y = ProtoField.uint32("btle_adv.location_y", "Y Location", base.DEC)
 local f_payload = ProtoField.bytes("btle_adv.payload", "Payload")
+local f_mid = ProtoField.uint8("btle_adv.mid", "Mid", base.DEC)
+local f_coarse = ProtoField.uint8("btle_adv.coarse", "Coarse", base.DEC)
+local f_packet_id = ProtoField.uint16("btle_adv.packet_id", "Packet ID", base.DEC)
 
 -- 为 dissector 添加字段
-p_btle_adv.fields = { f_access_address, f_packet_header, f_advertising_address, f_location_x, f_location_y, f_payload }
+p_btle_adv.fields = { 
+    f_access_address, 
+    f_packet_header, 
+    f_advertising_address, 
+    f_location_x, 
+    f_location_y, 
+    f_payload, 
+    f_mid, 
+    f_coarse, 
+    f_packet_id 
+}
 
 -- dissector 函数
 function p_btle_adv.dissector(buffer, pinfo, tree)
     -- 检查数据包长度是否足够
-    if buffer:len() < 50 then
+    if buffer:len() < 58 then
         return
     end
 
@@ -35,39 +48,68 @@ function p_btle_adv.dissector(buffer, pinfo, tree)
 
     -- 解析 Advertising Address (第24-29字节，正确顺序显示)
     if buffer:len() >= 29 then
-        -- 从 buffer 提取字节并以正确的顺序格式化
         local advertising_address = string.format(
             "%02x:%02x:%02x:%02x:%02x:%02x",
-            buffer(28, 1):uint(), -- 第6字节
-            buffer(27, 1):uint(), -- 第5字节
-            buffer(26, 1):uint(), -- 第4字节
-            buffer(25, 1):uint(), -- 第3字节
-            buffer(24, 1):uint(), -- 第2字节
-            buffer(23, 1):uint()  -- 第1字节
+            buffer(28, 1):uint(),
+            buffer(27, 1):uint(),
+            buffer(26, 1):uint(),
+            buffer(25, 1):uint(),
+            buffer(24, 1):uint(),
+            buffer(23, 1):uint()
         )
-        -- 添加到解析树中，值为手动格式化的地址
         subtree:add(f_advertising_address, advertising_address):append_text(" (formatted)")
     else
         subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Advertising Address")
     end
 
-    -- 解析剩余部分为 Payload
+    -- 解析 Payload
     if buffer:len() > 29 then
         local payload = buffer(29, buffer:len() - 29)
         local payload_tree = subtree:add(f_payload, payload, "Payload Data")
 
         -- 解析 Location Info (第39-46字节)
+        local x_location, y_location = nil, nil
         if buffer:len() >= 50 then
-            local x_location = buffer(38, 4):uint() -- 解析 X 位置信息
-            local y_location = buffer(42, 4):uint() -- 解析 Y 位置信息
+            x_location = buffer(38, 4):uint()
+            y_location = buffer(42, 4):uint()
             payload_tree:add(f_location_x, buffer(38, 4), x_location)
             payload_tree:add(f_location_y, buffer(42, 4), y_location)
-
-            -- 更新 Info 栏，显示位置信息
-            pinfo.cols.info = string.format("X: %d, Y: %d", x_location, y_location)
         else
             payload_tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Location Info")
         end
+
+        -- 解析 Mid 和 Coarse (第49-50字节)
+        local mid, coarse = nil, nil
+        if buffer:len() >= 50 then
+            mid = buffer(48, 1):uint() -- 第49字节
+            coarse = buffer(49, 1):uint() -- 第50字节
+            subtree:add(f_mid, buffer(48, 1), mid)
+            subtree:add(f_coarse, buffer(49, 1), coarse)
+        else
+            subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Mid and Coarse")
+        end
+
+        -- 解析 Packet ID (第57-58字节，按网络字节序)
+        local packet_id = nil
+        if buffer:len() >= 58 then
+            packet_id = buffer(56, 2):uint() -- 按大端序解码
+            subtree:add(f_packet_id, buffer(56, 2), packet_id)
+        else
+            subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Packet ID")
+        end
+
+        -- 更新 Info 栏，显示所有解析信息
+        local info_text = ""
+        if x_location and y_location then
+            info_text = string.format("X: %d, Y: %d", x_location, y_location)
+        end
+        if mid and coarse then
+            info_text = info_text .. string.format(", Mid: %d, Coarse: %d", mid, coarse)
+        end
+        if packet_id then
+            info_text = info_text .. string.format(", ID: %d", packet_id)
+        end
+        pinfo.cols.info = info_text
     end
 end
 
