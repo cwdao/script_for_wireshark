@@ -9,7 +9,7 @@ local f_location_x = ProtoField.uint32("btle_adv.location_x", "X Location", base
 local f_location_y = ProtoField.uint32("btle_adv.location_y", "Y Location", base.DEC)
 local f_payload = ProtoField.bytes("btle_adv.payload", "Payload")
 local f_mid = ProtoField.uint8("btle_adv.mid", "Mid", base.DEC)
-local f_coarse = ProtoField.uint8("btle_adv.coarse", "Coarse", base.DEC)
+local f_fine = ProtoField.uint8("btle_adv.fine", "Fine", base.DEC)
 local f_packet_id = ProtoField.uint16("btle_adv.packet_id", "Packet ID", base.DEC)
 
 -- 为 dissector 添加字段
@@ -21,7 +21,7 @@ p_btle_adv.fields = {
     f_location_y, 
     f_payload, 
     f_mid, 
-    f_coarse, 
+    f_fine, 
     f_packet_id 
 }
 
@@ -78,15 +78,15 @@ function p_btle_adv.dissector(buffer, pinfo, tree)
             payload_tree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Location Info")
         end
 
-        -- 解析 Mid 和 Coarse (第49-50字节)
-        local mid, coarse = nil, nil
+        -- 解析 Mid 和 Fine (第49-50字节)
+        local mid, fine = nil, nil
         if buffer:len() >= 50 then
             mid = buffer(48, 1):uint() -- 第49字节
-            coarse = buffer(49, 1):uint() -- 第50字节
+            fine = buffer(49, 1):uint() -- 第50字节
             subtree:add(f_mid, buffer(48, 1), mid)
-            subtree:add(f_coarse, buffer(49, 1), coarse)
+            subtree:add(f_fine, buffer(49, 1), fine)
         else
-            subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Mid and Coarse")
+            subtree:add_expert_info(PI_MALFORMED, PI_ERROR, "Packet too short for Mid and Fine")
         end
 
         -- 解析 Packet ID (第57-58字节，按网络字节序)
@@ -103,8 +103,8 @@ function p_btle_adv.dissector(buffer, pinfo, tree)
         if x_location and y_location then
             info_text = string.format("X: %d, Y: %d", x_location, y_location)
         end
-        if mid and coarse then
-            info_text = info_text .. string.format(", Mid: %d, Coarse: %d", mid, coarse)
+        if mid and fine then
+            info_text = info_text .. string.format(", Mid: %d, Fine: %d", mid, fine)
         end
         if packet_id then
             info_text = info_text .. string.format(", ID: %d", packet_id)
